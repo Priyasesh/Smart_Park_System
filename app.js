@@ -1,171 +1,416 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Smart Park — Real-Time Parking Operations Monitoring System</title>
-  <link rel="stylesheet" href="./style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div class="topbar-copy">
-        <p class="eyebrow">SMART PARK · CAMPUS OPERATIONS MONITORING</p>
-        <h1>Real-Time Parking Operations Monitoring System</h1>
-        <p class="subtext">
-          Monitor occupancy, identify peak usage patterns, and improve parking space utilization with live operational insights.
-        </p>
+const parkingSpots = [
+  { slotId: "A-01", zone: "Zone A", status: "Occupied", vehicleType: "Sedan", lastUpdated: "16:00" },
+  { slotId: "A-02", zone: "Zone A", status: "Available", vehicleType: "—", lastUpdated: "16:00" },
+  { slotId: "A-03", zone: "Zone A", status: "Occupied", vehicleType: "SUV", lastUpdated: "16:01" },
+  { slotId: "A-04", zone: "Zone A", status: "Reserved", vehicleType: "EV Reserved", lastUpdated: "16:02" },
+  { slotId: "A-05", zone: "Zone A", status: "Available", vehicleType: "—", lastUpdated: "16:03" },
+
+  { slotId: "B-01", zone: "Zone B", status: "Occupied", vehicleType: "Hatchback", lastUpdated: "16:00" },
+  { slotId: "B-02", zone: "Zone B", status: "Occupied", vehicleType: "SUV", lastUpdated: "16:01" },
+  { slotId: "B-03", zone: "Zone B", status: "Maintenance", vehicleType: "Blocked", lastUpdated: "15:55" },
+  { slotId: "B-04", zone: "Zone B", status: "Available", vehicleType: "—", lastUpdated: "16:02" },
+  { slotId: "B-05", zone: "Zone B", status: "Occupied", vehicleType: "Sedan", lastUpdated: "16:02" },
+
+  { slotId: "C-01", zone: "Zone C", status: "Available", vehicleType: "—", lastUpdated: "15:59" },
+  { slotId: "C-02", zone: "Zone C", status: "Available", vehicleType: "—", lastUpdated: "15:59" },
+  { slotId: "C-03", zone: "Zone C", status: "Occupied", vehicleType: "Motorcycle", lastUpdated: "16:00" },
+  { slotId: "C-04", zone: "Zone C", status: "Reserved", vehicleType: "Staff Reserved", lastUpdated: "15:58" },
+  { slotId: "C-05", zone: "Zone C", status: "Occupied", vehicleType: "Sedan", lastUpdated: "16:01" },
+
+  { slotId: "D-01", zone: "Zone D", status: "Available", vehicleType: "—", lastUpdated: "15:57" },
+  { slotId: "D-02", zone: "Zone D", status: "Occupied", vehicleType: "SUV", lastUpdated: "16:00" },
+  { slotId: "D-03", zone: "Zone D", status: "Occupied", vehicleType: "Sedan", lastUpdated: "16:00" },
+  { slotId: "D-04", zone: "Zone D", status: "Available", vehicleType: "—", lastUpdated: "16:01" },
+  { slotId: "D-05", zone: "Zone D", status: "Occupied", vehicleType: "Hatchback", lastUpdated: "16:03" }
+];
+
+const hourlyTrendData = [22, 28, 35, 44, 58, 72, 84, 90, 88, 76, 63, 49];
+const hourlyLabels = ["7 AM", "8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM", "6 PM"];
+
+const eventEntries = [
+  {
+    type: "warning",
+    title: "Zone B nearing capacity",
+    description: "Occupancy crossed the internal threshold for peak usage monitoring.",
+    time: "04:00 PM"
+  },
+  {
+    type: "info",
+    title: "Reserved spaces updated",
+    description: "Two priority parking spaces were marked reserved for staff use.",
+    time: "03:54 PM"
+  },
+  {
+    type: "success",
+    title: "Availability increased in Zone C",
+    description: "Two vehicles exited, improving short-term availability.",
+    time: "03:48 PM"
+  },
+  {
+    type: "danger",
+    title: "Maintenance block active",
+    description: "One parking bay in Zone B remains unavailable due to maintenance.",
+    time: "03:41 PM"
+  }
+];
+
+const totalSpotsEl = document.getElementById("totalSpots");
+const occupiedSpotsEl = document.getElementById("occupiedSpots");
+const availableSpotsEl = document.getElementById("availableSpots");
+const occupancyRateEl = document.getElementById("occupancyRate");
+const reservedSpotsEl = document.getElementById("reservedSpots");
+const maintenanceSpotsEl = document.getElementById("maintenanceSpots");
+
+const zoneFilter = document.getElementById("zoneFilter");
+const statusFilter = document.getElementById("statusFilter");
+const searchInput = document.getElementById("searchInput");
+const liveToggle = document.getElementById("liveToggle");
+
+const alertText = document.getElementById("alertText");
+const parkingGrid = document.getElementById("parkingGrid");
+const insightsList = document.getElementById("insightsList");
+const zoneStats = document.getElementById("zoneStats");
+const eventFeed = document.getElementById("eventFeed");
+
+const exportCsvBtn = document.getElementById("exportCsvBtn");
+const themeToggle = document.getElementById("themeToggle");
+
+let liveUpdatesEnabled = true;
+let occupancyChart = null;
+let simulationInterval = null;
+
+function getSlotClass(status) {
+  if (status === "Available") return "slot-available";
+  if (status === "Occupied") return "slot-occupied";
+  if (status === "Reserved") return "slot-reserved";
+  return "slot-maintenance";
+}
+
+function getFilteredSpots() {
+  const selectedZone = zoneFilter.value;
+  const selectedStatus = statusFilter.value;
+  const searchValue = searchInput.value.trim().toLowerCase();
+
+  return parkingSpots.filter((spot) => {
+    const matchesZone = selectedZone === "All" || spot.zone === selectedZone;
+    const matchesStatus = selectedStatus === "All" || spot.status === selectedStatus;
+    const matchesSearch =
+      spot.slotId.toLowerCase().includes(searchValue) ||
+      spot.vehicleType.toLowerCase().includes(searchValue);
+
+    return matchesZone && matchesStatus && matchesSearch;
+  });
+}
+
+function updateKpis(data) {
+  const total = data.length;
+  const occupied = data.filter(spot => spot.status === "Occupied").length;
+  const available = data.filter(spot => spot.status === "Available").length;
+  const reserved = data.filter(spot => spot.status === "Reserved").length;
+  const maintenance = data.filter(spot => spot.status === "Maintenance").length;
+  const rate = total === 0 ? 0 : Math.round((occupied / total) * 100);
+
+  totalSpotsEl.textContent = total;
+  occupiedSpotsEl.textContent = occupied;
+  availableSpotsEl.textContent = available;
+  occupancyRateEl.textContent = `${rate}%`;
+  reservedSpotsEl.textContent = reserved;
+  maintenanceSpotsEl.textContent = maintenance;
+}
+
+function renderParkingGrid(data) {
+  parkingGrid.innerHTML = "";
+
+  if (data.length === 0) {
+    parkingGrid.innerHTML = `<div class="insight-card"><h4>No matching parking spaces</h4><p>Try changing the zone, status, or search filter.</p></div>`;
+    return;
+  }
+
+  data.forEach((spot) => {
+    const card = document.createElement("div");
+    card.className = `parking-slot ${getSlotClass(spot.status)}`;
+
+    card.innerHTML = `
+      <div class="slot-top">
+        <div>
+          <div class="slot-id">${spot.slotId}</div>
+          <div class="slot-zone">${spot.zone}</div>
+        </div>
+        <div class="slot-status">${spot.status}</div>
       </div>
-
-      <div class="topbar-actions">
-        <button id="themeToggle" class="secondary-btn">Toggle Theme</button>
-        <button id="exportCsvBtn" class="primary-btn">Export Snapshot</button>
+      <div class="slot-meta">
+        <div>Vehicle: ${spot.vehicleType}</div>
+        <div>Updated: ${spot.lastUpdated}</div>
       </div>
-    </header>
+    `;
 
-    <main class="dashboard">
-      <section class="kpi-grid">
-        <div class="kpi-card">
-          <p class="kpi-label">Total Spots</p>
-          <h2 id="totalSpots">0</h2>
-          <span class="kpi-footnote">Across all parking zones</span>
-        </div>
+    parkingGrid.appendChild(card);
+  });
+}
 
-        <div class="kpi-card">
-          <p class="kpi-label">Occupied</p>
-          <h2 id="occupiedSpots">0</h2>
-          <span class="kpi-footnote">Currently in use</span>
-        </div>
+function renderZoneStats() {
+  zoneStats.innerHTML = "";
 
-        <div class="kpi-card">
-          <p class="kpi-label">Available</p>
-          <h2 id="availableSpots">0</h2>
-          <span class="kpi-footnote">Open for incoming vehicles</span>
-        </div>
+  const zones = ["Zone A", "Zone B", "Zone C", "Zone D"];
 
-        <div class="kpi-card">
-          <p class="kpi-label">Occupancy Rate</p>
-          <h2 id="occupancyRate">0%</h2>
-          <span class="kpi-footnote">Live space utilization</span>
-        </div>
+  zones.forEach((zone) => {
+    const zoneSpots = parkingSpots.filter(spot => spot.zone === zone);
+    const occupied = zoneSpots.filter(spot => spot.status === "Occupied").length;
+    const total = zoneSpots.length;
+    const rate = total === 0 ? 0 : Math.round((occupied / total) * 100);
 
-        <div class="kpi-card">
-          <p class="kpi-label">Reserved</p>
-          <h2 id="reservedSpots">0</h2>
-          <span class="kpi-footnote">Blocked for priority users</span>
-        </div>
+    const card = document.createElement("div");
+    card.className = "zone-card";
+    card.innerHTML = `
+      <h4>${zone}</h4>
+      <p>Occupied ${occupied} of ${total} spots</p>
+      <div class="zone-value">${rate}%</div>
+    `;
+    zoneStats.appendChild(card);
+  });
+}
 
-        <div class="kpi-card">
-          <p class="kpi-label">Maintenance</p>
-          <h2 id="maintenanceSpots">0</h2>
-          <span class="kpi-footnote">Temporarily unavailable</span>
-        </div>
-      </section>
+function renderInsights(data) {
+  insightsList.innerHTML = "";
 
-      <section class="control-row">
-        <div class="filter-group">
-          <label for="zoneFilter">Zone</label>
-          <select id="zoneFilter">
-            <option value="All">All Zones</option>
-            <option value="Zone A">Zone A</option>
-            <option value="Zone B">Zone B</option>
-            <option value="Zone C">Zone C</option>
-            <option value="Zone D">Zone D</option>
-          </select>
-        </div>
+  const occupied = data.filter(spot => spot.status === "Occupied").length;
+  const total = data.length;
+  const rate = total === 0 ? 0 : Math.round((occupied / total) * 100);
 
-        <div class="filter-group">
-          <label for="statusFilter">Space Status</label>
-          <select id="statusFilter">
-            <option value="All">All Statuses</option>
-            <option value="Available">Available</option>
-            <option value="Occupied">Occupied</option>
-            <option value="Reserved">Reserved</option>
-            <option value="Maintenance">Maintenance</option>
-          </select>
-        </div>
+  const allZoneRates = ["Zone A", "Zone B", "Zone C", "Zone D"].map(zone => {
+    const zoneSpots = parkingSpots.filter(spot => spot.zone === zone);
+    const zoneOccupied = zoneSpots.filter(spot => spot.status === "Occupied").length;
+    return {
+      zone,
+      rate: Math.round((zoneOccupied / zoneSpots.length) * 100)
+    };
+  });
 
-        <div class="filter-group search-group">
-          <label for="searchInput">Search Slot</label>
-          <input type="text" id="searchInput" placeholder="Search slot ID or vehicle type..." />
-        </div>
+  const highestZone = allZoneRates.reduce((max, current) => current.rate > max.rate ? current : max, allZoneRates[0]);
+  const lowestZone = allZoneRates.reduce((min, current) => current.rate < min.rate ? current : min, allZoneRates[0]);
 
-        <div class="filter-group live-group">
-          <label for="liveToggle">Live Simulation</label>
-          <button id="liveToggle" class="secondary-btn live-btn">Pause Live Updates</button>
-        </div>
-      </section>
+  const insights = [
+    {
+      title: "Current Occupancy",
+      text: rate >= 80
+        ? "Parking demand is currently high. Overflow handling or directional guidance may be needed."
+        : rate >= 50
+        ? "Occupancy is moderate and parking flow appears manageable."
+        : "Occupancy is relatively low, indicating available capacity across the monitored lot."
+    },
+    {
+      title: "Peak Zone",
+      text: `${highestZone.zone} has the highest current utilization at ${highestZone.rate}%, indicating stronger demand in that section.`
+    },
+    {
+      title: "Underused Zone",
+      text: `${lowestZone.zone} is currently the least utilized area at ${lowestZone.rate}%, which may indicate an opportunity for better load balancing.`
+    }
+  ];
 
-      <section class="alert-strip" id="alertStrip">
-        <strong>Operational Alerts:</strong>
-        <span id="alertText">No active alerts right now.</span>
-      </section>
+  insights.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "insight-card";
+    card.innerHTML = `
+      <h4>${item.title}</h4>
+      <p>${item.text}</p>
+    `;
+    insightsList.appendChild(card);
+  });
+}
 
-      <section class="main-grid">
-        <div class="panel panel-large">
-          <div class="panel-header">
-            <div>
-              <h3>Parking Space Map</h3>
-              <p class="panel-subtext">Real-time view of parking spot status by zone.</p>
-            </div>
-            <div class="legend">
-              <span><i class="legend-dot available"></i> Available</span>
-              <span><i class="legend-dot occupied"></i> Occupied</span>
-              <span><i class="legend-dot reserved"></i> Reserved</span>
-              <span><i class="legend-dot maintenance"></i> Maintenance</span>
-            </div>
-          </div>
-          <div id="parkingGrid" class="parking-grid"></div>
-        </div>
+function updateAlerts() {
+  const occupied = parkingSpots.filter(spot => spot.status === "Occupied").length;
+  const total = parkingSpots.length;
+  const occupancy = Math.round((occupied / total) * 100);
 
-        <div class="panel side-panel">
-          <div class="panel-header">
-            <div>
-              <h3>Operational Insights</h3>
-              <p class="panel-subtext">Auto-generated observations from current occupancy.</p>
-            </div>
-          </div>
-          <div id="insightsList" class="insights-list"></div>
-        </div>
-      </section>
+  const zoneBSpots = parkingSpots.filter(spot => spot.zone === "Zone B");
+  const zoneBOccupied = zoneBSpots.filter(spot => spot.status === "Occupied").length;
+  const zoneBRate = Math.round((zoneBOccupied / zoneBSpots.length) * 100);
 
-      <section class="analytics-grid">
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h3>Hourly Occupancy Trend</h3>
-              <p class="panel-subtext">Historical occupancy pattern across the day.</p>
-            </div>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="occupancyChart"></canvas>
-          </div>
-        </div>
+  if (occupancy >= 85) {
+    alertText.textContent = `Lot occupancy is at ${occupancy}%. High demand detected — consider redirecting vehicles to lower-usage zones.`;
+  } else if (zoneBRate >= 80) {
+    alertText.textContent = `Zone B occupancy is at ${zoneBRate}%. Peak pressure detected in this section.`;
+  } else {
+    alertText.textContent = "No critical occupancy alerts right now. Parking availability remains within normal range.";
+  }
+}
 
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h3>Zone Utilization</h3>
-              <p class="panel-subtext">Compare usage across parking zones.</p>
-            </div>
-          </div>
-          <div id="zoneStats" class="zone-stats"></div>
-        </div>
-      </section>
+function renderEventFeed() {
+  eventFeed.innerHTML = "";
 
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h3>Event Feed</h3>
-            <p class="panel-subtext">Recent occupancy changes, threshold alerts, and operational events.</p>
-          </div>
-        </div>
-        <div id="eventFeed" class="event-feed"></div>
-      </section>
-    </main>
-  </div>
+  eventEntries.forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = "feed-item";
 
-  <script src="./app.js"></script>
-</body>
-</html>
+    item.innerHTML = `
+      <div class="feed-dot ${entry.type}"></div>
+      <div class="feed-content">
+        <strong>${entry.title}</strong>
+        <p>${entry.description}</p>
+        <span class="feed-time">${entry.time}</span>
+      </div>
+    `;
+
+    eventFeed.appendChild(item);
+  });
+}
+
+function renderChart() {
+  const ctx = document.getElementById("occupancyChart").getContext("2d");
+
+  if (occupancyChart) {
+    occupancyChart.destroy();
+  }
+
+  occupancyChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: hourlyLabels,
+      datasets: [
+        {
+          label: "Occupied Spots",
+          data: hourlyTrendData,
+          borderColor: "#1f6feb",
+          backgroundColor: "rgba(31, 111, 235, 0.12)",
+          fill: true,
+          tension: 0.35,
+          pointRadius: 3,
+          pointHoverRadius: 5
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: "rgba(120, 140, 160, 0.15)"
+          }
+        },
+        x: {
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  });
+}
+
+function refreshDashboard() {
+  const filteredData = getFilteredSpots();
+  updateKpis(filteredData);
+  renderParkingGrid(filteredData);
+  renderInsights(filteredData);
+  renderZoneStats();
+  updateAlerts();
+}
+
+function getCurrentTime() {
+  const now = new Date();
+  return now.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function randomizeSpotStatus() {
+  const mutableStatuses = ["Available", "Occupied"];
+  const randomIndex = Math.floor(Math.random() * parkingSpots.length);
+  const selectedSpot = parkingSpots[randomIndex];
+
+  if (selectedSpot.status === "Reserved" || selectedSpot.status === "Maintenance") {
+    return;
+  }
+
+  const newStatus = mutableStatuses[Math.floor(Math.random() * mutableStatuses.length)];
+  selectedSpot.status = newStatus;
+  selectedSpot.vehicleType = newStatus === "Occupied"
+    ? ["Sedan", "SUV", "Hatchback", "Motorcycle"][Math.floor(Math.random() * 4)]
+    : "—";
+  selectedSpot.lastUpdated = getCurrentTime();
+
+  eventEntries.unshift({
+    type: newStatus === "Occupied" ? "warning" : "success",
+    title: `${selectedSpot.slotId} status changed`,
+    description: `${selectedSpot.zone} spot ${selectedSpot.slotId} is now marked as ${newStatus}.`,
+    time: getCurrentTime()
+  });
+
+  if (eventEntries.length > 6) {
+    eventEntries.pop();
+  }
+
+  const occupiedCount = parkingSpots.filter(spot => spot.status === "Occupied").length;
+  hourlyTrendData.shift();
+  hourlyTrendData.push(occupiedCount);
+
+  renderEventFeed();
+  refreshDashboard();
+  renderChart();
+}
+
+function startSimulation() {
+  simulationInterval = setInterval(() => {
+    if (liveUpdatesEnabled) {
+      randomizeSpotStatus();
+    }
+  }, 4000);
+}
+
+function exportCsv() {
+  const filteredData = getFilteredSpots();
+
+  const headers = ["Slot ID", "Zone", "Status", "Vehicle Type", "Last Updated"];
+  const rows = filteredData.map(spot => [
+    spot.slotId,
+    spot.zone,
+    spot.status,
+    spot.vehicleType,
+    spot.lastUpdated
+  ]);
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(value => `"${value}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = "smart-park-snapshot.csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+zoneFilter.addEventListener("change", refreshDashboard);
+statusFilter.addEventListener("change", refreshDashboard);
+searchInput.addEventListener("input", refreshDashboard);
+
+liveToggle.addEventListener("click", () => {
+  liveUpdatesEnabled = !liveUpdatesEnabled;
+  liveToggle.textContent = liveUpdatesEnabled ? "Pause Live Updates" : "Resume Live Updates";
+});
+
+themeToggle.addEventListener("click", () => {
+  document.body.classList.toggle("dark");
+});
+
+exportCsvBtn.addEventListener("click", exportCsv);
+
+renderEventFeed();
+refreshDashboard();
+renderChart();
+startSimulation();
