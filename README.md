@@ -1,4 +1,4 @@
-# Smart-_Park-_System# Smart Park — Real-Time Parking Operations Monitoring System
+# Smart Park System — Real-Time Parking Operations Monitoring System
 
 Smart Park is a browser-based dashboard built to monitor parking occupancy, analyze usage trends, and support better parking operations through real-time data visualization.
 
